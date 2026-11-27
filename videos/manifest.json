@@ -1,4 +1,20 @@
 [
-  {"slug": "smoky-the-yorkie", "file": "smoky-the-yorkie.mp4", "title": "The Tiniest War Hero of All Time", "date": "2026-11-24"},
-  {"slug": "cher-ami", "file": "cher-ami.mp4", "title": "How One Pigeon Saved 194 Soldiers", "date": "2026-11-27"}
+ {
+  "slug": "smoky-the-yorkie",
+  "file": "smoky-the-yorkie.mp4",
+  "title": "The Tiniest War Hero of All Time",
+  "date": "2026-11-24"
+ },
+ {
+  "slug": "cher-ami",
+  "file": "cher-ami.mp4",
+  "title": "How One Pigeon Saved 194 Soldiers",
+  "date": "2026-11-27"
+ },
+ {
+  "slug": "simon-ship-cat",
+  "file": "simon-ship-cat.mp4",
+  "title": "The Only Cat Ever Awarded a War Medal",
+  "date": "2026-11-27"
+ }
 ]
