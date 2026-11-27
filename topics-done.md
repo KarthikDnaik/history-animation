@@ -1,0 +1,27 @@
+# Topics already made (never repeat)
+- Tipu Sultan's iron rockets
+- The Great Emu War (1932)
+- Acoustic Kitty (CIA spy cat)
+- Wojtek the soldier bear
+- Sergeant Stubby (WWI dog)
+- Hiroo Onoda (fought WW2 until 1974)
+- Mad Jack Churchill (sword, bow and bagpipes)
+- The Great Hanoi Rat Hunt
+- The Pig War (1859)
+- Lord Timothy Dexter ("dumbest genius")
+- The 38-minute war (Anglo-Zanzibar, 1896)
+- The Dancing Plague (Strasbourg, 1518)
+- The Kentucky Meat Shower (1876)
+- The Dead Jockey (Frank Hayes, 1923)
+- Bonnie and Clyde (GTA 6 angle)
+- Mike the Headless Chicken
+- Charles Joughin, the baker who survived the Titanic
+- The man declared dead (Lal Bihari)
+- The bridge that fell for a song (Angers Bridge)
+- Victor Lustig, the man who sold the Eiffel Tower (long-form)
+- Operation Mincemeat
+- Lawnchair Larry (Larry Walters, 1982)
+- Sergeant Reckless (Korean War horse)
+- Smoky the Yorkie (WW2)
+- Cher Ami (WW1 pigeon)
+- Simon, HMS Amethyst's ship's cat (1949)

@@ -1,0 +1,25 @@
+// Named cue times (seconds) on narration words for the Acoustic Kitty short.
+import { at, lineStart, lineEnd } from "./story";
+export const C = {
+  brilliant: at(0, "brilliant"), spying: at(0, "spying"), soviets: at(0, "soviets"),
+  l1: lineStart(1), cats1: at(1, "cats"),
+  l2: lineStart(2), nobody: at(2, "nobody"), anywhere: at(2, "anywhere"), sit2: at(2, "sit"), listening: at(2, "listening"),
+  l3: lineStart(3), vet: at(3, "vet"), spy3: at(3, "spy"),
+  l4: lineStart(4), microphone: at(4, "microphone"), transmitter: at(4, "transmitter"), wire: at(4, "wire"), fur: at(4, "fur"),
+  l5: lineStart(5), agent5: at(5, "agent"), ready: at(5, "ready"),
+  l6: lineStart(6), problem: at(6, "problem"), its6: at(6, "its"), cat6: at(6, "cat"),
+  l7: lineStart(7), wandering: at(7, "wandering"), mostly: at(7, "mostly"), food: at(7, "food"),
+  l8: lineStart(8), second: at(8, "second"), hungry: at(8, "hungry"),
+  l9: lineStart(9), mission: at(9, "mission"),
+  l10: lineStart(10), talking: at(10, "talking"), outside: at(10, "outside"), washington: at(10, "washington"),
+  l11: lineStart(11), release: at(11, "release"), point: at(11, "point"),
+  l12: lineStart(12), next: at(12, "next"), depends: at(12, "depends"), ask: at(12, "ask"),
+  l13: lineStart(13), walked: at(13, "walked"), road: at(13, "road"), taxi: at(13, "taxi"),
+  l14: lineStart(14), gear: at(14, "gear"), lived: at(14, "lived"), happy: at(14, "happy"),
+  l15: lineStart(15), never: at(15, "never"), anyone: at(15, "anyone"),
+  l16: lineStart(16), twenty: at(16, "twenty"), dollars: at(16, "dollars"),
+  l17: lineStart(17), shut: at(17, "shut"), memo: at(17, "memo"),
+  l18: lineStart(18), conclusion: at(18, "conclusion"), spy18: at(18, "spy"), practical: at(18, "practical"),
+  l19: lineStart(19), millions: at(19, "millions"), knows: at(19, "knows"),
+  l20: lineStart(20), tell: at(20, "tell"), what20: at(20, "what"), end20: lineEnd(20),
+};

@@ -1,0 +1,35 @@
+{
+  "name": "shorts",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@react-three/fiber": "^8.17.10",
+    "@react-three/postprocessing": "^2.16.6",
+    "@remotion/bundler": "^4.0.539",
+    "@remotion/cli": "^4.0.539",
+    "@remotion/renderer": "^4.0.539",
+    "@remotion/three": "^4.0.539",
+    "@theatre/core": "^0.7.2",
+    "@types/d3-geo": "^3.1.1",
+    "@types/react": "^18.3.31",
+    "@types/three": "^0.170.0",
+    "@types/topojson-client": "^3.1.5",
+    "d3-geo": "^3.1.2",
+    "postprocessing": "^6.36.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.539",
+    "three": "^0.170.0",
+    "three.quarks": "^0.15.7",
+    "topojson-client": "^3.1.0",
+    "typescript": "^7.0.2",
+    "world-atlas": "^2.0.2"
+  }
+}

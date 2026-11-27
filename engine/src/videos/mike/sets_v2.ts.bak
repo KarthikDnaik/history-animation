@@ -1,0 +1,386 @@
+// Places and cast of "Mike the Headless Chicken". Cameras mostly sit on the +z side looking toward -z, so +x = screen right.
+import * as THREE from "three";
+import { Batch, boxGeo, V, lam, quad, ctex, MAT, M4, plane, earthHD } from "./props3d";
+import { prop, Kit, house } from "./build";
+import { grassHD, rep, planksHD } from "./paint";
+import { Pen, SKINS, fxBurst, fxSmoke, Outfit, FrontOpts, henSide, HenOpts, fxFeathers, fxBrain, fxDollar, fxMagazine, fxSyringe, fxCandle, fxConfetti, fxBang, fxBanner, fxNote, fxFlameAt, fxCash, fxHeartFx, fxPuff, Expr } from "./toon";
+import { Stage, CamInfo, person, blob, lidAt, hh, q, Who, light2D } from "./cast";
+import { C } from "./cues";
+import { FPS, V3, smooth, clamp01, LEAD, SetId, at } from "./story";
+
+// ---------------- cast ----------------
+const LLOYD: Outfit = { jacket: "#3f6a9a", pants: "#35577e", boots: "#5a3b2a", hat: "fedora", hatCol: "#d9b968", trim: "#8a6a3a", buttons: "#e8c45a", skin: SKINS[0] };
+const LLOYD_PJ: Outfit = { jacket: "#9cc6dc", pants: "#9cc6dc", boots: "#d9b968", hat: "hair", hair: "#6a4a30", buttons: "#f4f1ea", skin: SKINS[0] };
+const CLARA: Outfit = { jacket: "#f4e8d0", pants: "#f4e8d0", boots: "#5a3b2a", dress: "#c94a5a", hat: "hair", hair: "#8a5a3a", skin: SKINS[0] };
+const PROMO: Outfit = { jacket: "#a8322e", pants: "#2e2a36", boots: "#1e1e24", hat: "tophat", moustache: "#2a1e18", buttons: "#e8c45a", skin: SKINS[1], build: "stout" };
+const CROWD: Outfit[] = [
+  { jacket: "#4a6a8a", pants: "#3a3a44", boots: "#3a2a20", hat: "fedora", hatCol: "#6a5a44", buttons: "#e8e4d8", skin: SKINS[2] },
+  { jacket: "#e6e0f0", pants: "#e6e0f0", boots: "#5a3b2a", dress: "#3f9a6a", hat: "hair", hair: "#3a2a20", skin: SKINS[1] },
+  { jacket: "#8a5a3e", pants: "#4a4a52", boots: "#3a2a20", hat: "cap", cap: "#2f6a4a", buttons: "#e8c45a", skin: SKINS[3] },
+  { jacket: "#f0e0a0", pants: "#f0e0a0", boots: "#5a3b2a", dress: "#e07a3a", hat: "hair", hair: "#d9a24e", skin: SKINS[0] },
+  { jacket: "#5a4a6a", pants: "#2e2b36", boots: "#1e1e24", hat: "fedora", hatCol: "#3a3a42", buttons: "#c9ccd2", skin: SKINS[0], build: "stout" },
+  { jacket: "#c94a4a", pants: "#3a3a44", boots: "#3a2a20", hat: "hair", hair: "#5a3b2a", buttons: "#f4f1ea", skin: SKINS[2], build: "kid" },
+];
+
+type Ctx = { cam: CamInfo; t: number; out: Stage };
+const after = (t: number, c: number) => t >= c - LEAD;
+const ramp = (t: number, a: number, b: number) => smooth((t - a) / Math.max(0.01, b - a));
+// ---------------- life: card-level motion (no redraw): idle sway, reaction jolts, hops ----------------
+/** lean (+ = forward for hens, + = screen-left / CCW for people) and a vertical hop offset */
+type Act = { lean?: number; dy?: number };
+const sway = (t: number, i: number, amp = 0.03, hz = 0.5) => amp * Math.sin(2 * Math.PI * (hz * t + hh(i, 5))) + 0.4 * amp * Math.sin(2 * Math.PI * (1.7 * hz * t + hh(i, 6)));
+/** damped wobble after a cue (a recoil that settles in ~0.5 s) */
+const jolt = (t: number, at: number, amp: number) => { const u = t - at + LEAD; return u < 0 ? 0 : amp * Math.exp(-u * 6) * Math.cos(u * 20); };
+/** a hop of height h lasting d seconds after a cue */
+const hop = (t: number, at: number, h = 0.12, d = 0.3) => { const u = (t - at + LEAD) / d; return u < 0 || u > 1 ? 0 : h * Math.sin(Math.PI * u); };
+/** cheering bounce: repeating little hops */
+const bounce = (t: number, i: number, h = 0.06, hz = 2.2) => h * Math.abs(Math.sin(Math.PI * (hz * t + hh(i, 7))));
+/** expression cycling (reference: a new face every ~0.4 s) */
+const cyc = <T,>(t: number, list: T[], hz = 2.5, i = 0): T => list[Math.floor(t * hz + hh(i, 8) * list.length) % list.length];
+const pose = (c: Ctx, i: number, o: Outfit, okey: string, x: number, z: number, fo: FrontOpts & Act, scale = 1, y = 0, shadow = true) => {
+  const { lean = 0, dy = 0, ...f } = fo;
+  const pl = person(c.cam, { i, o, okey } as Who, x, y + dy, z, { side: false, mirror: false }, { blink: lidAt(c.t, i), ...f }, {}, scale);
+  pl.roll = sway(c.t, i) + lean;
+  c.out.places.push(pl);
+  if (shadow && f.mode !== "fall" && y < 0.05) blob(c.out, x, y, z, scale);
+};
+const blinkOf = (t: number, i: number) => { const f = Math.round(t * FPS), s = Math.round(40 * hh(i, 9)); return (f + s) % Math.round(55 + 30 * hh(i, 3)) < 3; };
+/** a chicken at (x, y, z) heading along (dx, dz): mirrored so it faces that way on screen */
+const hen = (c: Ctx, i: number, x: number, z: number, dx: number, dz: number, oa: HenOpts & Act, scale = 0.45, y = 0, shadow = true) => {
+  const { lean = 0, dy = 0, ...o } = oa;
+  const mirror = dx * c.cam.right.x + dz * c.cam.right.z < 0;
+  const d = c.cam.pos.distanceTo(V(x, y + 0.25, z)) / scale;
+  const [w, h, k] = d < 3.2 ? [1800, 3000, 3.0] : d < 6.5 ? [1080, 1800, 1.8] : d < 16 ? [480, 800, 0.8] : [240, 400, 0.4];
+  const eye = o.head ? (o.eye ?? (blinkOf(c.t, i) ? "blink" : "dot")) : undefined;
+  const oo: HenOpts = { ...o, eye, phase: q(o.phase ?? 0, 16), gurgle: o.gurgle ? q(o.gurgle, 12) : 0, light: light2D(c.cam, mirror) };
+  c.out.places.push({ key: `hen|${JSON.stringify(oo)}`, x, y: y + dy, z, scale, mirror, draw: (p) => henSide(p, oo), size: [w, h, k], roll: sway(c.t, i + 3, 0.025, 0.7) + lean * (mirror ? 1 : -1) });
+  if (shadow) blob(c.out, x, y, z, scale * 1.5);
+};
+/** Mike: no head */
+const mike = (c: Ctx, x: number, z: number, dx: number, o: HenOpts & Act, y = 0, scale = 0.45, shadow = true) => hen(c, 1, x, z, dx, 0, { ...o, head: false }, scale, y, shadow);
+const card = (c: Ctx, key: string, cw: number, ch: number, draw: (p: Pen) => void, p: V3, w: number, h: number, extra: Partial<Stage["fx"][number]> = {}) =>
+  c.out.fx.push({ key, cw, ch, draw, x: p[0], y: p[1], z: p[2], w, h, ...extra });
+const spark = (c: Ctx, at: number, p: V3, size: number, life = 0.25, col = "#fff3b0") => {
+  const u = (c.t - at) / life;
+  if (u < 0 || u >= 1) return;
+  const k = q(u, 20);
+  card(c, `burst${col}${k}`, 500, 500, (pen) => fxBurst(pen, k, col), p, size, size, { glow: 1.5 });
+};
+const pop = (t: number, at: number) => { const u = clamp01((t - at + LEAD) / 0.18); return u <= 0 ? 0 : 1 + 0.25 * Math.sin(Math.PI * u) * (1 - u) + (u < 1 ? -0.3 * (1 - u) : 0); };
+const feathers = (c: Ctx, at: number, p: V3, size: number, life = 0.9) => { const u = (c.t - at) / life; if (u < 0 || u >= 1) return; const k = q(u, 24); card(c, `feath${k}`, 400, 400, (pen) => fxFeathers(pen, k), p, size, size); };
+const notes = (c: Ctx, p: V3, s = 0.14) => { for (let k = 0; k < 3; k++) { const u = (c.t * 0.6 + k / 3) % 1; card(c, `note${k % 2}`, 240, 260, (pen) => fxNote(pen, k % 2, "#2a2a44"), [p[0] + 0.2 * Math.sin(u * 6 + k), p[1] + 0.45 * u, p[2]], s * Math.sin(Math.PI * u), s * 1.1 * Math.sin(Math.PI * u)); } };
+const flame = (c: Ctx, p: V3, size = 0.3) => { const k = q((c.t * 2.3) % 1, 6); card(c, `flame${k}`, 200, 260, (pen) => fxFlameAt(pen, 100, 170, 60, k * 6), p, size, size * 1.3, { glow: 2.4 }); };
+const cashRain = (c: Ctx, at: number, x0: number, x1: number, y0: number, z: number) => { if (c.t < at - LEAD) return; for (let k = 0; k < 10; k++) { const u = ((c.t - at) * 0.5 + k / 10) % 1; card(c, "cashfx", 300, 200, (p) => fxCash(p), [x0 + (x1 - x0) * hh(k, 2), y0 - 3 * u, z + 0.6 * hh(k, 3)], 0.36, 0.24, { rot: Math.sin(u * 7 + k) * 0.6 }); } };
+const puff = (c: Ctx, at: number, p: V3, size = 0.5, life = 0.45) => { const u = (c.t - at) / life; if (u < 0 || u >= 1) return; const k = q(u, 16); card(c, `puff${k}`, 300, 300, (pen) => fxPuff(pen, k), p, size, size); };
+/** Lloyd's straw fedora knocked flying: arcs up and spins off screen-right */
+const hatFly = (c: Ctx, at: number, p: V3, dir = 1, life = 1.3) => {
+  const u = c.t - at + LEAD; if (u < 0 || u >= life) return;
+  card(c, "flyhat", 300, 200, (pen) => {
+    pen.poly([[78, 120], [92, 40], [150, 30], [208, 40], [222, 120]], "#d9b968", 8); pen.band([[80, 104], [220, 104]], "#8a6a3a", 18, 3);
+    pen.ell(150, 128, 132, 26, "#c9a858", 8);
+  }, [p[0] + dir * 0.9 * u, p[1] + 2.4 * u - 3.2 * u * u, p[2] + 0.3 * u], 0.36, 0.24, { rot: -dir * 9 * u });
+};
+/** sweat drops flicking off a head */
+const sweat = (c: Ctx, p: V3, s = 0.07) => { for (let k = 0; k < 2; k++) { const u = (c.t * 1.8 + k / 2) % 1; card(c, "sweat", 120, 160, (pen) => { pen.poly([[60, 10], [100, 100], [60, 150], [20, 100]], "#bfe6ff", 6); }, [p[0] + (k ? 1 : -1) * (0.08 + 0.12 * u), p[1] + 0.1 * Math.sin(Math.PI * u) - 0.05 * u, p[2]], s, s * 1.3); } };
+const confetti = (c: Ctx, at: number, p: V3, w: number) => { if (c.t < at - LEAD) return; const k = q(((c.t - at) * 0.35) % 1, 30); card(c, `conf${k}`, 600, 600, (pen) => fxConfetti(pen, k), p, w, w); };
+
+// ---------------- builders ----------------
+export type SetBuild = { b: Batch; root: THREE.Object3D; kit: Kit; dyn: Record<string, THREE.Object3D> };
+const plankWall = () => ctex("plankWall", 512, 512, (g) => { g.fillStyle = "#8a5a36"; g.fillRect(0, 0, 512, 512); for (let x = 0; x < 512; x += 64) { g.fillStyle = x % 128 ? "#7e5230" : "#94623c"; g.fillRect(x, 0, 60, 512); g.fillStyle = "#5a3a22"; g.fillRect(x + 60, 0, 4, 512); } });
+const stripes = (a: string, b: string) => ctex("stripes" + a + b, 512, 256, (g) => { for (let x = 0; x < 512; x += 64) { g.fillStyle = (x / 64) % 2 ? a : b; g.fillRect(x, 0, 64, 256); } });
+const fence = (b: Batch, x0: number, x1: number, z: number) => {
+  const W = lam("fenceWood", () => ({ color: "#c9a77a" }));
+  for (let x = x0; x <= x1; x += 2) b.add(boxGeo(V(x - 0.07, 0, z - 0.07), V(x + 0.07, 1.1, z + 0.07)), W);
+  for (const y of [0.45, 0.9]) b.add(boxGeo(V(x0, y, z - 0.04), V(x1, y + 0.1, z + 0.04)), W);
+};
+const barn = (b: Batch, x: number, z: number) => {
+  const R = lam("barnRed", () => ({ color: "#b8322e" })), Wt = lam("barnTrim", () => ({ color: "#f4f1ea" })), Rf = lam("barnRoof", () => ({ color: "#4a4a52", side: THREE.DoubleSide }));
+  b.add(boxGeo(V(x - 4, 0, z - 3), V(x + 4, 4.5, z + 3)), R);
+  b.add(quad(V(x - 4.3, 4.3, z + 3.3), V(x + 4.3, 4.3, z + 3.3), V(x + 4.3, 7.2, z), V(x - 4.3, 7.2, z)), Rf);
+  b.add(quad(V(x + 4.3, 4.3, z - 3.3), V(x - 4.3, 4.3, z - 3.3), V(x - 4.3, 7.2, z), V(x + 4.3, 7.2, z)), Rf);
+  b.add(boxGeo(V(x - 1.4, 0, z + 3), V(x + 1.4, 3.2, z + 3.06)), lam("barnDoor", () => ({ color: "#8e2622" })));
+  for (const d of [-1, 1]) b.add(boxGeo(V(x - 1.4, 1.55 + d * 0.0, z + 3.06), V(x + 1.4, 1.65, z + 3.1)), Wt);
+  b.add(boxGeo(V(x - 0.05, 0, z + 3.06), V(x + 0.05, 3.2, z + 3.1)), Wt);
+};
+const tractor = (root: THREE.Object3D, x: number, z: number, ry: number, col = "#c0262c") => {
+  const g = new THREE.Group(), body = new THREE.MeshLambertMaterial({ color: col }), dark = new THREE.MeshLambertMaterial({ color: "#1b1d24" }), hub = new THREE.MeshLambertMaterial({ color: "#e8c45a" });
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, px: number, py: number, pz: number) => { const me = new THREE.Mesh(geo, m); me.position.set(px, py, pz); me.castShadow = me.receiveShadow = true; g.add(me); };
+  add(new THREE.BoxGeometry(2.0, 0.7, 0.8), body, 0.3, 0.95, 0); add(new THREE.BoxGeometry(0.7, 0.9, 1.0), body, -0.6, 1.25, 0);
+  add(new THREE.CylinderGeometry(0.07, 0.07, 0.7, 8), dark, 0.9, 1.6, 0);
+  for (const s of [-1, 1]) { add(new THREE.CylinderGeometry(0.75, 0.75, 0.35, 20).rotateX(Math.PI / 2), dark, -0.6, 0.75, s * 0.7); add(new THREE.CylinderGeometry(0.3, 0.3, 0.37, 16).rotateX(Math.PI / 2), hub, -0.6, 0.75, s * 0.7);
+    add(new THREE.CylinderGeometry(0.4, 0.4, 0.25, 16).rotateX(Math.PI / 2), dark, 1.0, 0.4, s * 0.5); }
+  g.position.set(x, 0, z); g.rotation.y = ry; root.add(g); return g;
+};
+const pickup = (root: THREE.Object3D, x: number, z: number, ry: number) => {
+  const g = new THREE.Group(), body = new THREE.MeshLambertMaterial({ color: "#3f8a9a" }), dark = new THREE.MeshLambertMaterial({ color: "#1b1d24" }), glass = new THREE.MeshLambertMaterial({ color: "#9cc6dc" }), chrome = new THREE.MeshLambertMaterial({ color: "#e9eef0" });
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, px: number, py: number, pz: number) => { const me = new THREE.Mesh(geo, m); me.position.set(px, py, pz); me.castShadow = me.receiveShadow = true; g.add(me); };
+  add(new THREE.BoxGeometry(4.4, 0.7, 1.8), body, 0, 0.75, 0); add(new THREE.BoxGeometry(1.4, 0.8, 1.7), body, 0.3, 1.5, 0); add(new THREE.BoxGeometry(1.3, 0.5, 1.72), glass, 0.3, 1.55, 0);
+  add(new THREE.BoxGeometry(1.4, 0.55, 1.75), body, 1.55, 1.15, 0); add(new THREE.BoxGeometry(0.06, 0.4, 1.4), chrome, 2.22, 0.85, 0);
+  for (const sx of [-1.35, 1.4]) for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 18).rotateX(Math.PI / 2), dark, sx, 0.42, s * 0.85);
+  g.position.set(x, 0, z); g.rotation.y = ry; root.add(g); return g;
+};
+const bunting = (b: Batch, x0: number, x1: number, y: number, z: number) => {
+  const cols = ["#e8505a", "#f6c83a", "#3f7ab8", "#4ab84a", "#f4f1ea"];
+  const n = Math.round((x1 - x0) / 0.6);
+  for (let k = 0; k < n; k++) {
+    const x = x0 + (k + 0.5) * (x1 - x0) / n, sag = 0.8 * (1 - ((2 * (k + 0.5)) / n - 1) ** 2), yy = y - sag;
+    const g = new THREE.BufferGeometry().setFromPoints([V(x - 0.22, yy, z), V(x + 0.22, yy, z), V(x, yy - 0.42, z)]); g.computeVertexNormals();
+    b.add(g, lam("flag" + (k % 5), () => ({ color: cols[k % 5], side: THREE.DoubleSide })));
+  }
+};
+
+export const BUILD: Record<SetId, (s: SetBuild) => void> = {
+  farm: (s) => {
+    const { b, kit } = s;
+    b.add(plane(-160, 160, -160, 60, 1), lam("farmGrass", () => ({ map: grassHD() })));
+    b.add(plane(-4, 4, -4.5, 3, 1, 0.01), lam("yardDirt", () => ({ map: rep(earthHD(), 1, 1) })));
+    fence(b, -12, 12, -5);
+    barn(b, -7.5, -12);
+    house(b, 7.5, -13, 0, 7, 6, 4.5, 2, 0);
+    // chopping stump with an axe mark
+    b.add(new THREE.CylinderGeometry(0.36, 0.42, 0.5, 18), lam("stump", () => ({ color: "#8a5a36" })), M4(1.0, 0.25, -1.2));
+    b.add(new THREE.CylinderGeometry(0.34, 0.34, 0.02, 18), lam("stumpTop", () => ({ color: "#e0c08a" })), M4(1.0, 0.5, -1.2));
+    // coop
+    b.add(boxGeo(V(-3.6, 0.3, -4.2), V(-2.0, 1.4, -3.2)), lam("coop", () => ({ color: "#d9c79a" })));
+    b.add(boxGeo(V(-3.75, 1.4, -4.35), V(-1.85, 1.5, -3.05)), lam("coopRoof", () => ({ color: "#7a4a2e" })));
+    for (const x of [-3.5, -2.1]) b.add(boxGeo(V(x - 0.05, 0, -4.1), V(x + 0.05, 0.3, -4.0)), MAT.darkWood());
+    // hay bales, trees, mesas on the horizon (Colorado)
+    for (let k = 0; k < 3; k++) b.add(new THREE.CylinderGeometry(0.6, 0.6, 1.1, 18).rotateZ(Math.PI / 2), lam("hay", () => ({ color: "#e0c070" })), M4(3.4 + 1.25 * k, 0.6, -4.2));
+    for (let k = -6; k <= 6; k++) prop(b, kit, "tree_fat", k * 10 + 3, 0, -24 - 6 * hh(k, 3), 7 + 2 * hh(k, 4));
+    // the new machines (shot 14), toggled in POSE
+    const mach = new THREE.Group(); s.root.add(mach); s.dyn.mach = mach;
+    tractor(mach, -3.2, -2.6, 0.3); tractor(mach, -5.4, -3.4, 0.5, "#2f8a4a");
+    const bal = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 1.0), new THREE.MeshLambertMaterial({ color: "#e8c45a" })); bal.position.set(4.6, 0.5, -2.8); bal.castShadow = true; mach.add(bal);
+    s.dyn.truck = pickup(s.root, 0.4, -2.2, 0);
+    mach.visible = false; s.dyn.truck.visible = false;
+  },
+  barn: (s) => {
+    const { b } = s;
+    b.add(plane(-8, 8, -6, 6, 1), lam("barnFloor", () => ({ color: "#8a6a44" })));
+    const W = lam("barnWallIn", () => ({ map: rep(plankWall(), 3, 1) }));
+    b.add(quad(V(-8, 0, -3), V(8, 0, -3), V(8, 5, -3), V(-8, 5, -3)), W);
+    b.add(quad(V(-4, 0, 6), V(-4, 0, -3), V(-4, 5, -3), V(-4, 5, 6)), W);
+    for (let k = 0; k < 4; k++) b.add(boxGeo(V(-3.8 + 1.3 * k, 0, -2.9), V(-2.6 + 1.3 * k, 0.7, -2.1)), lam("bale", () => ({ color: "#d9b860" })));
+    for (let k = 0; k < 2; k++) b.add(boxGeo(V(-3.2 + 1.3 * k, 0.7, -2.9), V(-2.0 + 1.3 * k, 1.4, -2.1)), lam("bale", () => ({ color: "#d9b860" })));
+    // the apple box (open top, toward camera)
+    const A = lam("appleBox", () => ({ color: "#c9965a", side: THREE.DoubleSide }));
+    b.add(boxGeo(V(-0.45, 0, -1.25), V(0.45, 0.05, -0.75)), A);
+    b.add(boxGeo(V(-0.45, 0, -1.25), V(0.45, 0.42, -1.2)), A);
+    b.add(boxGeo(V(-0.45, 0, -0.8), V(0.45, 0.2, -0.75)), A);
+    for (const sx of [-1, 1]) b.add(boxGeo(V(sx * 0.45 - 0.03, 0, -1.25), V(sx * 0.45 + 0.03, 0.42, -0.75)), A);
+    b.add(new THREE.CylinderGeometry(0.06, 0.06, 1.8, 8), MAT.darkWood(), M4(-1.2, 0.9, -1.6));
+    b.add(boxGeo(V(-1.32, 1.6, -1.72), V(-1.08, 1.85, -1.48)), lam("lantern", () => ({ color: "#3a3a44" })));
+  },
+  show: (s) => {
+    const { b } = s;
+    b.add(plane(-10, 10, -6, 8, 1), lam("showFloor", () => ({ map: planksHD() })));
+    b.add(quad(V(-10, 0, -4.2), V(10, 0, -4.2), V(10, 6, -4.2), V(-10, 6, -4.2)), lam("tentBack", () => ({ map: rep(stripes("#c0353a", "#f4e8d0"), 4, 1) })));
+    for (const sx of [-1, 1]) b.add(quad(V(sx * 6, 0, sx < 0 ? 8 : -4.2), V(sx * 6, 0, sx < 0 ? -4.2 : 8), V(sx * 6, 6, sx < 0 ? -4.2 : 8), V(sx * 6, 6, sx < 0 ? 8 : -4.2)), lam("tentSide", () => ({ map: rep(stripes("#c0353a", "#f4e8d0"), 4, 1) })));
+    b.add(boxGeo(V(-3.2, 0, -4.2), V(3.2, 0.5, -1.6)), lam("stage", () => ({ color: "#6e3e2a" })));
+    b.add(boxGeo(V(-3.2, 0.5, -1.7), V(3.2, 0.56, -1.55)), lam("stageLip", () => ({ color: "#e8c45a" })));
+    b.add(new THREE.CylinderGeometry(0.32, 0.38, 0.8, 18), lam("pedestal", () => ({ color: "#2f5f94" })), M4(0, 0.9, -2.6));
+    b.add(new THREE.CylinderGeometry(0.4, 0.4, 0.06, 18), lam("pedTop", () => ({ color: "#e8c45a" })), M4(0, 1.33, -2.6));
+    for (const sx of [-1, 1]) { b.add(boxGeo(V(sx * 3.6 - 0.3, 0, -4.15), V(sx * 3.6 + 0.3, 5.5, -3.9)), lam("curtain", () => ({ color: "#8e1c22" }))); }
+    for (let k = 0; k < 9; k++) b.add(new THREE.SphereGeometry(0.1, 10, 8), lam("bulbs", () => ({ color: "#fff2b0", emissive: "#ffd870", emissiveIntensity: 1.5 })), M4(-3.2 + 0.8 * k, 4.6, -4.1));
+  },
+  motel: (s) => {
+    const { b } = s;
+    b.add(plane(-8, 8, -6, 6, 1), lam("motelFloor", () => ({ color: "#6a5a7a" })));
+    const W = lam("motelWall", () => ({ color: "#d9c79a" }));
+    b.add(quad(V(-8, 0, -3), V(8, 0, -3), V(8, 5, -3), V(-8, 5, -3)), W);
+    b.add(quad(V(-4, 0, 6), V(-4, 0, -3), V(-4, 5, -3), V(-4, 5, 6)), W);
+    const night = ctex("nightWin", 256, 256, (g) => { g.fillStyle = "#1f2a5a"; g.fillRect(0, 0, 256, 256); g.fillStyle = "#fff6d8"; for (let k = 0; k < 30; k++) g.fillRect((k * 97) % 256, (k * 53) % 200, 3, 3); g.beginPath(); g.arc(190, 60, 26, 0, 7); g.fill(); g.fillStyle = "#3a2a4a"; g.fillRect(0, 200, 256, 56); });
+    b.add(quad(V(0.4, 1.2, -2.98), V(2.6, 1.2, -2.98), V(2.6, 3.0, -2.98), V(0.4, 3.0, -2.98)), lam("nightWinM", () => ({ map: night })));
+    for (const x of [0.25, 2.75]) b.add(boxGeo(V(x - 0.25, 1.0, -2.97), V(x + 0.25, 3.2, -2.9)), lam("motelCurtain", () => ({ color: "#3f7a6a" })));
+    b.add(boxGeo(V(-3.6, 0, -2.9), V(-1.4, 0.55, -0.9)), lam("bed", () => ({ color: "#e9e4d2" })));
+    b.add(boxGeo(V(-3.6, 0.55, -2.9), V(-1.4, 0.62, -1.6)), lam("blanket", () => ({ color: "#c0603a" })));
+    b.add(boxGeo(V(-3.6, 0, -3.0), V(-1.4, 1.2, -2.9)), MAT.darkWood());
+    b.add(boxGeo(V(0.1, 0.62, -1.9), V(1.3, 0.68, -1.1)), MAT.darkWood());
+    for (const [x, z] of [[0.15, -1.85], [1.25, -1.85], [0.15, -1.15], [1.25, -1.15]]) b.add(boxGeo(V(x - 0.03, 0, z - 0.03), V(x + 0.03, 0.62, z + 0.03)), MAT.darkWood());
+    b.add(new THREE.CylinderGeometry(0.28, 0.28, 0.06, 16), lam("motelCushion", () => ({ color: "#c94a6a" })), M4(0.65, 0.71, -1.5));
+  },
+  fest: (s) => {
+    const { b } = s;
+    b.add(plane(-160, 160, -160, 60, 1), lam("festGrass", () => ({ map: grassHD() })));
+    b.add(plane(-60, 60, -6, 6, 2, 0.01), lam("festRoad", () => ({ color: "#b9ae9a" })));
+    for (let k = -4; k <= 4; k++) { house(b, k * 9, -11, 0, 8, 6, 5 + 1.5 * (k % 2 ? 1 : 0), (k + 8) % 7, 0); house(b, k * 9 + 4.5, 14, Math.PI, 8, 6, 5 + 1.5 * (k % 2 ? 0 : 1), (k + 11) % 7, 0); }
+    for (let k = -3; k <= 3; k++) bunting(b, k * 6 - 3, k * 6 + 3, 4.6, -3 + 0.5 * (k % 2));
+    for (let k = -3; k <= 3; k++) bunting(b, k * 6 - 3, k * 6 + 3, 5.2, -7.5);
+    // the statue plinth
+    b.add(boxGeo(V(-1.0, 0, -5.4), V(1.0, 1.2, -4.0)), lam("plinth", () => ({ color: "#bfb8aa" })));
+    b.add(boxGeo(V(-1.15, 1.2, -5.55), V(1.15, 1.32, -3.85)), lam("plinthTop", () => ({ color: "#d6d0c4" })));
+    // stalls
+    for (const [x, col] of [[-4.6, "#c0353a"], [4.4, "#3f7ab8"]] as [number, string][]) {
+      b.add(boxGeo(V(x - 1.1, 0, -4.6), V(x + 1.1, 1.0, -3.8)), lam("stallBox", () => ({ color: "#e9e3d2" })));
+      b.add(boxGeo(V(x - 1.25, 2.1, -4.8), V(x + 1.25, 2.18, -3.6)), lam("stallRoof" + col, () => ({ color: col })));
+      for (const sx of [-1, 1]) b.add(boxGeo(V(x + sx * 1.1 - 0.04, 0, -3.84), V(x + sx * 1.1 + 0.04, 2.1, -3.76)), MAT.iron());
+    }
+  },
+};
+
+// ---------------- dynamic ----------------
+export const POSE: Partial<Record<SetId, (s: SetBuild, t: number, id: number) => void>> = {
+  farm: (s, t, id) => { s.dyn.mach.visible = id === 14; s.dyn.truck.visible = id === 14 && t >= C.pickup - LEAD; },
+};
+
+// ---------------- staging per shot ----------------
+type StageFn = (c: Ctx) => void;
+const HENS = (c: Ctx, n: number, x0: number, x1: number, z0: number, z1: number, eye?: "shock") => {
+  for (let k = 0; k < n; k++) hen(c, 20 + k, x0 + (x1 - x0) * hh(k, 1), z0 + (z1 - z0) * hh(k, 2), hh(k, 3) - 0.5, 0, { head: true, mode: eye ? "stand" : (k % 3 ? "peck" : "stand"), eye, phase: (c.t * 0.7 + hh(k, 4)) % 1, col: k % 3 === 2 ? "#c9874a" : undefined, colS: k % 3 === 2 ? "#9a5e2e" : undefined }, 0.42);
+};
+const STUMP: V3 = [1.0, 0.5, -1.2];
+const at6 = at(5, "farmer"), UP3 = at(2, "up");
+const LLOYD_BARE: Outfit = { ...LLOYD, hat: "hair", hair: "#6a4a30" };
+export const STAGE: Record<number, StageFn> = {
+  // 1 Lloyd heads out to get a chicken ready for dinner
+  1: (c) => {
+    const t = c.t, x = Math.min(0.1, -2.6 + 0.8 * t), dn = after(t, C.dinner);
+    pose(c, 1, LLOYD, "lloyd", x, -1.7, { mode: x < 0.1 ? "march" : "stand", phase: (t * 1.3) % 1, expr: dn ? cyc(t, ["grin", "smug"] as Expr[], 2.2) : "whistle", prop: "axe", lean: x < 0.1 ? -0.05 : jolt(t, C.dinner, 0.12), dy: hop(t, C.dinner, 0.06, 0.25) }, 1);
+    HENS(c, 5, -1.2, 2.6, -3.6, -0.6);
+  },
+  // 2 one swing of the axe (we only see Lloyd), done
+  2: (c) => {
+    const t = c.t, sw = after(t, C.axe1), dn = after(t, C.done);
+    pose(c, 1, LLOYD, "lloyd", 0.1, -1.7, { mode: "stand", expr: dn ? cyc(t, ["smug", "grin"] as Expr[], 2.5) : "stern", prop: sw ? "axe" : "axeUp",
+      lean: sw ? jolt(t, C.axe1, -0.22) + (dn ? jolt(t, C.done, 0.08) : 0) : 0.06 * Math.sin(Math.min(1, (t - C.l1) / 0.6) * Math.PI / 2), dy: hop(t, C.done, 0.05, 0.22) });
+    feathers(c, C.axe1 + 0.05, [0.85, 0.75, -1.2], 1.2);
+    spark(c, C.axe1, [0.85, 0.6, -1.15], 0.6, 0.25, "#ffffff");
+    puff(c, C.axe1, [0.95, 0.55, -1.1], 0.7, 0.5);
+  },
+  // 3 except... the chicken got up and walked away
+  3: (c) => {
+    const t = c.t, up = after(t, C.got), w = after(t, C.walked), u = Math.max(0, t - C.walked), sh = after(t, UP3);
+    pose(c, 1, sh ? LLOYD_BARE : LLOYD, sh ? "lloydB" : "lloyd", 0.1, -1.7, { mode: "stand", expr: sh ? cyc(t, ["shock", "dazed"] as Expr[], 1.6) : "smug", prop: "axe", lean: jolt(t, UP3, 0.2), dy: hop(t, UP3, 0.22, 0.32) });
+    hatFly(c, UP3, [0.1, 2.05, -1.68], 1);
+    if (sh) sweat(c, [0.1, 1.9, -1.65], 0.06);
+    // he hops down off the stump and struts away
+    const yy = w ? Math.max(0, 0.5 + 1.6 * u - 6 * u * u) : 0.5;
+    mike(c, 1.0 + 0.7 * u, -1.15, 1, { mode: w ? "walk" : up ? "stand" : "lie", phase: (t * 1.6) % 1, lean: up ? jolt(t, C.got, -0.25) + (w ? 0.06 * Math.sin(2 * Math.PI * t * 1.6) : 0) : 0, dy: up && !w ? hop(t, C.got, 0.08, 0.25) : 0 }, yy, 0.45, yy < 0.02);
+    puff(c, C.walked + 0.45, [1.32, 0.12, -1.1], 0.5);
+  },
+  // 4 no head. just vibes.
+  4: (c) => {
+    const t = c.t, u = t - C.l3;
+    mike(c, -0.6 + 0.35 * u, 0.2, 1, { mode: "walk", phase: (t * 1.6) % 1, lean: 0.09 * Math.sin(2 * Math.PI * t * 1.6) }, 0, 0.45);
+    if (after(t, C.vibes)) notes(c, [-0.25 + 0.35 * u, 0.95, 0.25], 0.13);
+    for (let k = 0; k < 3; k++) {
+      const x = -2.5 + 5 * hh(k, 1), z = -2.8 + hh(k, 2);
+      hen(c, 20 + k, x, z, hh(k, 3) - 0.5, 0, { head: true, mode: "stand", eye: "shock", phase: (t * 0.7 + hh(k, 4)) % 1, col: k % 3 === 2 ? "#c9874a" : undefined, colS: k % 3 === 2 ? "#9a5e2e" : undefined, lean: jolt(t, C.l3 + 0.15 * k, -0.25), dy: hop(t, C.l3 + 0.15 * k, 0.15, 0.3) }, 0.42);
+    }
+  },
+  // 5 the apple box, alive the next morning
+  5: (c) => {
+    const t = c.t, al = after(t, C.alive);
+    mike(c, 0, -1.0, 1, { mode: al ? "stand" : "sit", phase: t * 0.5, lean: al ? jolt(t, C.alive, 0.2) : 0, dy: hop(t, C.alive, 0.14, 0.3) }, al ? 0.05 : 0.0, 0.42, false);
+    flame(c, [-1.2, 1.74, -1.45], 0.28);
+    if (al) spark(c, C.alive, [0.1, 0.75, -0.95], 0.6, 0.35, "#ffffff");
+  },
+  // 6 he gave him a name: Mike
+  6: (c) => {
+    const t = c.t, fa = after(t, at6), nm = after(t, C.mike5);
+    pose(c, 1, LLOYD, "lloyd", 0.1, -1.8, { mode: "stand", expr: nm ? cyc(t, ["grin", "laugh"] as Expr[], 2.5) : fa ? cyc(t, ["smug", "nervous", "smug"] as Expr[], 2) : "smile", prop: nm ? "point" : null, lean: nm ? jolt(t, C.mike5, -0.15) - 0.05 : 0.03 * Math.sin(t * 3), dy: hop(t, C.mike5, 0.08, 0.25), headTilt: fa && !nm ? 0.12 : 0 });
+    pose(c, 2, CLARA, "clara", -1.0, -2.2, { mode: "stand", expr: nm ? cyc(t, ["laugh", "grin"] as Expr[], 3, 2) : "awe", lean: jolt(t, C.mike5 + 0.1, 0.12), dy: nm ? bounce(t, 2, 0.05) : 0 });
+    mike(c, STUMP[0], STUMP[2], -1, { mode: "stand", phase: t * 0.5, lean: jolt(t, C.mike5, -0.18), dy: hop(t, C.mike5, 0.1, 0.25) }, STUMP[1], 0.45, false);
+    if (nm) { const k = pop(t, C.mike5); card(c, "heartM", 300, 300, (p) => fxHeartFx(p), [STUMP[0] - 0.05, 1.45 + 0.1 * Math.sin(t * 5), STUMP[2] + 0.05], 0.22 * k, 0.22 * k); }
+  },
+  // 7 how? the axe missed most of the brain; a clot stopped the bleeding
+  7: (c) => {
+    const t = c.t, br = after(t, C.brain), cl = after(t, C.clot);
+    mike(c, STUMP[0], STUMP[2], 1, { mode: "stand", bandage: cl, phase: t * 0.5, lean: jolt(t, C.clot, 0.2) + 0.05 * Math.sin(t * 2.4) }, STUMP[1], 0.45, false);
+    if (br) { const k = pop(t, C.brain); card(c, `brain${after(t, C.brain + 0.4) ? 1 : 0}`, 400, 300, (p) => fxBrain(p, after(t, C.brain + 0.4)), [STUMP[0] - 0.4, 1.35 + 0.03 * Math.sin(t * 4), STUMP[2] + 0.05], 0.4 * k, 0.3 * k); }
+    if (cl) spark(c, C.clot, [STUMP[0] + 0.1, 1.15, STUMP[2] + 0.05], 0.4, 0.3, "#ffffff");
+  },
+  // 8 peck, preen, crow
+  8: (c) => {
+    const t = c.t, m = after(t, C.crow) ? "crow" : after(t, C.preen) ? "preen" : after(t, C.peck) ? "peck" : "stand";
+    const ln = jolt(t, C.peck, 0.22) + jolt(t, C.preen, -0.18) + jolt(t, C.crow, -0.25) + (m === "peck" ? 0.08 * Math.max(0, Math.sin(t * 9)) : 0);
+    mike(c, 0.1, 0.0, 1, { mode: m, bandage: true, phase: (t * 1.2) % 1, lean: ln, dy: hop(t, C.crow, 0.1, 0.3) }, 0, 0.45);
+    HENS(c, 3, -1.8, 1.8, -2.6, -1.6);
+  },
+  // 9 it came out as a gurgle
+  9: (c) => {
+    const t = c.t, g = after(t, C.gurgle - 0.3);
+    mike(c, 0.1, 0.0, 1, { mode: "crow", bandage: true, gurgle: g ? (t * 1.5) % 1 : 0, phase: (t * 1.2) % 1, lean: g ? 0.04 * Math.sin(t * 38) : 0 }, 0, 0.45);
+    hen(c, 30, -0.55, -0.3, 1, 0, { head: true, mode: "stand", eye: "shock", phase: t % 1, lean: jolt(t, C.gurgle, -0.3), dy: hop(t, C.gurgle, 0.14, 0.28) }, 0.42);
+    hen(c, 31, 0.85, -0.5, -1, 0, { head: true, mode: "stand", eye: "shock", phase: t % 1, col: "#c9874a", colS: "#9a5e2e", lean: jolt(t, C.gurgle + 0.08, -0.3), dy: hop(t, C.gurgle + 0.08, 0.14, 0.28) }, 0.42);
+  },
+  // 10 fed with an eyedropper, straight down the neck
+  10: (c) => {
+    const t = c.t, st = after(t, C.straight);
+    pose(c, 1, LLOYD, "lloyd", 0.35, -1.75, { mode: "stand", expr: st ? cyc(t, ["smile", "grin"] as Expr[], 2) : "smile", prop: "dropper", lean: -0.08 - 0.03 * Math.sin(t * 4) });
+    mike(c, STUMP[0], STUMP[2], 1, { mode: "stand", bandage: false, phase: t * 0.5, lean: st ? 0.03 * Math.sin(t * 12) : 0 }, STUMP[1], 0.45, false);
+    if (st) for (let k = 0; k < 3; k++) { const u = ((t - C.straight) * 1.6 + k / 3) % 1; card(c, "drop", 200, 200, (p) => p.ell(100, 100, 40, 56, "#f4f1ea", 8), [STUMP[0] + 0.13, 1.42 - 0.3 * u, STUMP[2] + 0.06], 0.05, 0.05); }
+  },
+  // 11 a sideshow promoter saw dollar signs
+  11: (c) => {
+    const t = c.t, ds = after(t, C.dollar), pr = after(t, C.promoter);
+    pose(c, 1, PROMO, "promo", -0.25, -1.8, { mode: "stand", expr: ds ? cyc(t, ["grin", "laugh"] as Expr[], 3) : pr ? "smug" : "smile", lean: jolt(t, C.promoter, 0.1) + jolt(t, C.dollar, -0.18), dy: hop(t, C.dollar, 0.1, 0.25) + (ds ? bounce(t, 1, 0.03, 3) : 0) });
+    pose(c, 2, LLOYD, "lloyd", -1.4, -2.3, { mode: "stand", expr: ds ? "nervous" : "smile" }, 0.98);
+    mike(c, STUMP[0], STUMP[2], -1, { mode: "stand", phase: t * 0.5 }, STUMP[1], 0.45, false);
+    if (ds) { const k = pop(t, C.dollar); for (const dx of [-0.07, 0.07]) card(c, "dollar", 200, 200, (p) => fxDollar(p), [-0.25 + dx, 1.62, -1.72], 0.11 * k * (1 + 0.12 * Math.sin(t * 14)), 0.11 * k * (1 + 0.12 * Math.sin(t * 14))); }
+  },
+  // 12 on tour: twenty-five cents a look
+  12: (c) => {
+    const t = c.t, ce = after(t, C.cents), crow = Math.floor(t * 1.2) % 3 === 0;
+    mike(c, 0, -2.6, 1, { mode: crow ? "crow" : "stand", hat: true, phase: t % 1, lean: crow ? -0.08 : 0.04 * Math.sin(t * 3), dy: crow ? 0.04 : 0 }, 1.36, 0.45, false);
+    card(c, "banner", 1000, 240, (p) => fxBanner(p, "MIRACLE MIKE"), [0, 3.4, -4.0], 3.4, 0.82, { rot: 0.02 * Math.sin(t * 2) });
+    pose(c, 1, PROMO, "promo", 1.5, -2.9, { mode: "stand", expr: ce ? cyc(t, ["grin", "laugh"] as Expr[], 2.5) : "smile", prop: ce ? "coin" : "point", lean: jolt(t, C.cents, 0.14) + 0.04 * Math.sin(t * 3.3), dy: hop(t, C.cents, 0.08) }, 1, 0.5, false);
+    for (let k = 0; k < 6; k++) pose(c, 10 + k, CROWD[k], `cr${k}`, (k % 2 ? 1 : -1) * (2.3 + 0.7 * Math.floor(k / 2)), -0.4 + 0.6 * k, { mode: "stand", expr: ce ? cyc(t, ["awe", "laugh", "shock"] as Expr[], 2, k) : "shock", look: k % 2 ? -1 : 1, lean: jolt(t, C.l11 + 0.1 * k, k % 2 ? 0.1 : -0.1), dy: ce ? bounce(t, k, 0.05) : 0 }, CROWD[k].build === "kid" ? 0.8 : 1);
+    if (ce) spark(c, C.cents, [1.75, 1.8, -2.85], 0.4, 0.3);
+  },
+  // 13 a magazine wrote about him -> four and a half thousand dollars a month
+  13: (c) => {
+    const t = c.t, mg = after(t, C.life) && !after(t, C.made), mo = after(t, C.made);
+    if (mg) { const k = pop(t, C.life); card(c, "magazine", 600, 800, (p) => fxMagazine(p), [0, 1.95, -2.4], 0.75 * k, 1.0 * k, { rot: 0.06 * Math.sin(t * 2.5) }); }
+    else {
+      mike(c, 0, -2.6, 1, { mode: "crow", hat: true, phase: t % 1, lean: -0.06 + 0.04 * Math.sin(t * 6), dy: bounce(t, 1, 0.04, 2) }, 1.36, 0.45, false);
+      pose(c, 1, PROMO, "promo", 1.5, -2.9, { mode: "stand", expr: mo ? cyc(t, ["laugh", "grin"] as Expr[], 3) : "grin", prop: mo ? "coin" : "magazine", lean: jolt(t, C.made, 0.15) + 0.05 * Math.sin(t * 7), dy: mo ? bounce(t, 1, 0.05, 2.5) : 0 }, 1, 0.5, false);
+      card(c, "banner", 1000, 240, (p) => fxBanner(p, "MIRACLE MIKE"), [0, 3.4, -4.0], 3.4, 0.82, { rot: 0.02 * Math.sin(t * 2) });
+      if (mo) cashRain(c, C.made, -1.6, 2.0, 3.5, -2.0);
+    }
+  },
+  // 14 the hay baler, two tractors and a brand new pickup, paid for by Mike
+  14: (c) => {
+    const t = c.t, pk = after(t, C.pickup), pd = after(t, C.paid);
+    pose(c, 1, LLOYD, "lloyd", -0.6, -0.6, { mode: "stand", expr: pk ? cyc(t, ["laugh", "grin"] as Expr[], 3) : cyc(t, ["grin", "smile"] as Expr[], 1.5), lean: jolt(t, C.baler, 0.1) + jolt(t, C.tractors, -0.1) + jolt(t, C.pickup, 0.16), dy: hop(t, C.pickup, 0.16, 0.3) + (pk ? bounce(t, 1, 0.04) : 0) });
+    pose(c, 2, CLARA, "clara", -1.5, -1.0, { mode: "stand", expr: pk ? cyc(t, ["awe", "laugh"] as Expr[], 2, 2) : "smile", lean: jolt(t, C.pickup + 0.08, -0.14), dy: hop(t, C.pickup + 0.08, 0.12, 0.3) });
+    if (pk) { spark(c, C.pickup, [0.6, 1.5, -1.3], 1.2, 0.35, "#ffffff"); puff(c, C.pickup, [0.4, 0.3, -1.4], 1.6, 0.6); }
+    if (pd) mike(c, 1.9, -2.2, -1, { mode: "crow", hat: true, phase: t % 1, lean: -0.08 + jolt(t, C.paid, -0.2), dy: hop(t, C.paid, 0.12, 0.3) }, 1.43, 0.45, false);
+    else mike(c, 0.4, -0.3, 1, { mode: "stand", hat: true, phase: t % 1 }, 0, 0.45);
+  },
+  // 15 one night in Phoenix: choking
+  15: (c) => {
+    const t = c.t, ch = after(t, C.choking);
+    mike(c, 0.65, -1.5, -1, { mode: ch ? "choke" : "sit", hat: false, phase: (t * 1.3) % 1, lean: ch ? 0.08 * Math.sin(t * 30) : 0, dy: ch ? 0.03 * Math.abs(Math.sin(t * 15)) : 0 }, 0.74, 0.42, false);
+    pose(c, 1, LLOYD_PJ, "lloydpj", -2.0, -1.4, { mode: "stand", expr: ch ? "shock" : "dazed", lean: jolt(t, C.choking, 0.2), dy: hop(t, C.choking, 0.15, 0.3) });
+    if (ch) { const k = pop(t, C.choking); card(c, "bang", 200, 400, (p) => fxBang(p), [0.7, 1.55, -1.45], 0.14 * k, 0.28 * k, { rot: 0.15 * Math.sin(t * 20) }); sweat(c, [0.7, 1.25, -1.45], 0.06); }
+  },
+  // 16 the syringe was left behind at the show
+  16: (c) => {
+    const t = c.t;
+    if (after(t, C.syringe)) { const k = pop(t, C.syringe); card(c, "syringe", 400, 120, (p) => fxSyringe(p), [0, 1.42, -2.45], 0.5 * k, 0.15 * k); }
+    card(c, "bannerN", 1000, 240, (p) => fxBanner(p, "MIRACLE MIKE", "#6a2a2e"), [0, 3.4, -4.0], 3.4, 0.82, { rot: after(t, C.left) ? -0.12 * smooth((t - C.left) / 0.6) : 0 });
+  },
+  // 17 eighteen months on, Mike was gone: his little top hat and a candle
+  17: (c) => {
+    const t = c.t;
+    card(c, "tophatC", 200, 200, (p) => { p.poly([[60, 40], [140, 40], [136, 150], [64, 150]], "#2e2a36", 8); p.band([[62, 125], [138, 125]], "#c0353a", 14, 3); p.ell(100, 152, 70, 16, "#1d1b22", 7); }, [0.6, 0.85, -1.5], 0.16, 0.16);
+    card(c, `candle${q((t * 2) % 1, 8)}`, 200, 400, (p) => fxCandle(p, q((t * 2) % 1, 8)), [0.95, 0.85, -1.45], 0.12, 0.24, { glow: 1.4 });
+  },
+  // 18 the town never forgot him: Fruita's festival
+  18: (c) => {
+    const t = c.t, fe = after(t, C.festival);
+    hen(c, 2, 0, -4.7, 1, 0, { head: false, mode: "crow", hat: true, col: "#d8d0c0", colS: "#a9a092", phase: 0 }, 2.0, 1.32, false);
+    for (let k = 0; k < 12; k++) pose(c, 10 + k, CROWD[k % 6], `cr${k % 6}`, -4.5 + 0.8 * k + 0.3 * hh(k, 2), -1.8 + 3.0 * hh(k, 3), { mode: fe && k % 3 === 0 ? "march" : "stand", phase: (t * 1.4 + hh(k)) % 1, expr: fe ? cyc(t, ["laugh", "grin"] as Expr[], 2.5, k) : "smile", wave: fe && k % 3 === 1 ? q(Math.sin(t * 7 + k), 20) : undefined, dy: fe && k % 3 !== 0 ? bounce(t, k, 0.07) : 0 }, CROWD[k % 6].build === "kid" ? 0.8 : 1);
+    confetti(c, C.festival, [0, 2.4, -1.0], 5);
+  },
+  // 19 even without a head... you can still get ahead
+  19: (c) => {
+    const t = c.t, ah = after(t, C.ahead);
+    hen(c, 2, 0, -4.7, 1, 0, { head: false, mode: "crow", hat: true, col: "#d8d0c0", colS: "#a9a092", phase: 0 }, 2.0, 1.32, false);
+    mike(c, 0.7, -2.2, -1, { mode: ah ? "crow" : "stand", hat: true, phase: t % 1, lean: ah ? -0.1 + jolt(t, C.ahead, -0.2) : 0.05 * Math.sin(t * 3), dy: hop(t, C.ahead, 0.18, 0.35) }, 0, 0.45);
+    for (let k = 0; k < 6; k++) pose(c, 10 + k, CROWD[k], `cr${k}`, (k % 2 ? 1 : -1) * (1.6 + 0.8 * Math.floor(k / 2)), -1.4 + 0.5 * Math.floor(k / 2), { mode: "stand", expr: ah ? cyc(t, ["laugh", "grin"] as Expr[], 3, k) : "grin", wave: ah && k % 2 ? q(Math.sin(t * 7 + k), 20) : undefined, dy: ah ? bounce(t, k, 0.08) : bounce(t, k, 0.02, 1.2) }, CROWD[k].build === "kid" ? 0.8 : 1);
+    confetti(c, C.l18, [0, 2.2, -0.8], 4);
+    if (ah) { confetti(c, C.ahead, [0, 2.0, -0.4], 3.5); spark(c, C.ahead, [0, 3.2, -4.6], 2.5, 0.4, "#ffffff"); }
+  },
+};
