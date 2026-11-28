@@ -25,3 +25,4 @@
 - Smoky the Yorkie (WW2)
 - Cher Ami (WW1 pigeon)
 - Simon, HMS Amethyst's ship's cat (1949)
+- The Bat Bomb (Project X-Ray, 1943 Carlsbad fire)
